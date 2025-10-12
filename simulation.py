@@ -5,6 +5,7 @@ import anndata
 import scanpy as sc
 import scvelo as scv
 from velovi import preprocess_data, VELOVI
+import matplotlib.pyplot as plt
 
 def sigmoid(x, x0, k):
     return 1 / (1 + np.exp(-k * (x - x0)))
@@ -20,12 +21,12 @@ def generate_time_pseudo(N_GENES, N_PROGENITOR, N_FATE_A, N_FATE_B, PROGENITOR_S
     print(pseudo_time.shape)
 
     progenitor_s = np.ones((N_GENES, N_PROGENITOR))
-    mid = (FATE_START + FATE_END)/2
+    # mid = (FATE_START + FATE_END)/2
     # mid += (FATE_END - mid)/2
-    fateA_s = sigmoid(x=fateA_time, x0=mid, k=4)
-    fateB_s = sigmoid(x=fateB_time, x0=mid, k=4)
-    # fateA_s = sigmoid(x=fateA_time, x0=5, k=4)
-    # fateB_s = sigmoid(x=fateB_time, x0=5, k=4)
+    # fateA_s = sigmoid(x=fateA_time, x0=mid, k=3.5)
+    # fateB_s = sigmoid(x=fateB_time, x0=mid, k=3.5)
+    fateA_s = sigmoid(x=fateA_time, x0=5, k=4)
+    fateB_s = sigmoid(x=fateB_time, x0=5, k=4)
 
     s = np.concatenate((progenitor_s, fateA_s, fateB_s), axis=1)
     return pseudo_time, s
@@ -191,7 +192,8 @@ def simulate(N_PROGENITOR, N_FATE_A, N_FATE_B, N_HOUSEKEEPING, N_DE, N_IS, hk_lo
     adata = create_anndata(alpha, beta, gamma, gene_u, gene_s, time, iso_count, isoform, observed, ground_truth, N_PROGENITOR, N_FATE_A, N_FATE_B, N_HOUSEKEEPING, N_DE, N_IS, overlap_is)
     return adata
 
-def check_gene_scvelo(adata, seed):
+def adata_preprocess(adata, seed, plot = False):
+    plt.rcParams['savefig.transparent'] = True
     adata.X = adata.layers['spliced'].copy()
     scv.pp.filter_and_normalize(adata, min_shared_counts=20)  
     scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
@@ -199,18 +201,14 @@ def check_gene_scvelo(adata, seed):
     sc.tl.pca(adata, svd_solver='arpack', random_state=seed)
     sc.pp.neighbors(adata, n_pcs=30, random_state=seed)
     sc.tl.umap(adata, random_state=seed)
-    sc.pl.umap(adata, color='cell_state',
-               title='UMAP Based on Gene Counts')
-
-    scv.tl.velocity(adata)
-    scv.tl.velocity_graph(adata)
-    scv.pl.velocity_embedding_stream(adata, basis='umap', color='cell_state',
-                                     title='Gene-Level ScVelo Velocity on Gene-Based UMAP')
-
-def check_isoform_scvelo(adata, seed):
+    if plot:
+        sc.pl.umap(adata, color='cell_state',
+                title='UMAP Based on Gene Counts', show = False)
+        plt.savefig('adata_gene_umap.svg')
+        plt.close
+    
     isoforms = list(adata.uns['spliced_isoform_counts'].values())
     isoforms = np.concatenate(isoforms, axis=0).T
-
     adata_isoform = anndata.AnnData(isoforms)
     print(adata_isoform)
     adata_isoform.obs['cell_state'] = adata.obs['cell_state'].values
@@ -219,58 +217,88 @@ def check_isoform_scvelo(adata, seed):
     sc.tl.pca(adata_isoform, n_comps=50, random_state=seed)
     sc.pp.neighbors(adata_isoform, n_pcs=50, random_state=seed)
     sc.tl.umap(adata_isoform, random_state=seed)
-    sc.pl.umap(
-        adata_isoform,
-        color='cell_state', # Uncomment if you added labels
-        title='UMAP Based on Isoform Counts',
-        frameon=False
-    )
+    if plot:
+        sc.pl.umap(
+            adata_isoform,
+            color='cell_state', 
+            title='UMAP Based on Isoform Counts',
+            frameon=False
+        )
+        plt.savefig('adata_isoform_umap.svg')
+        plt.close
     adata.obsm['X_umap_isoform'] = adata_isoform.obsm['X_umap']
+
+def check_gene_scvelo(adata, latent_time = False):
+    plt.rcParams['savefig.transparent'] = True
+    scv.tl.velocity(adata)
+    scv.tl.velocity_graph(adata)
+    scv.pl.velocity_embedding_stream(adata, basis='umap', color='cell_state',
+                                     title='Gene-Level ScVelo Velocity on Gene-Based UMAP',
+                                     show= False)
+    plt.savefig('adata_gene_velocity_scvelo.svg')
+    plt.close
+
+    if latent_time:
+        scv.tl.recover_dynamics(adata)
+        scv.tl.latent_time(adata)
+        scv.pl.umap(adata, color='latent_time',
+                    title = 'Gene-based UMAP Colored by Latent Time (ScVelo)',
+                    color_map = 'viridis', show = False)
+        plt.savefig('adata_gene_latent_time_scvelo.svg')
+        plt.close
+
+def check_isoform_scvelo(adata, latent_time = False):
+    plt.rcParams['savefig.transparent'] = True
     scv.tl.velocity(adata)
     scv.tl.velocity_graph(adata)
     scv.pl.velocity_embedding_stream(
         adata,
         basis='umap_isoform',  # Tell scvelo to use these specific coordinates
         color='cell_state',    # Color by your ground truth cell states
-        title='Gene-Level ScVelo Velocity on Isoform-Based UMAP'
-    )
+        title='Gene-Level ScVelo Velocity on Isoform-Based UMAP',
+        show=False)
+    plt.savefig('adata_isoform_velocity_scvelo.svg')
+    plt.close
 
-def check_gene_velovi(adata, seed):
-    adata.X = adata.layers['spliced'].copy()
-    scv.pp.filter_and_normalize(adata, min_shared_counts=20)
-    scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
-    sc.tl.pca(adata, svd_solver='arpack', random_state=seed)
-    sc.pp.neighbors(adata, n_pcs=30, random_state=seed)
-    sc.tl.umap(adata, random_state=seed)
-    # sc.pl.umap(adata, color='cell_state',
-    #            title='UMAP Based on Gene Counts')
+    if latent_time:
+        scv.pl.scatter(adata, basis='umap_isoform', color='latent_time',
+                    title = 'Isoform-based UMAP Colored by Latent Time (ScVelo)',
+                    color_map = 'viridis', show = False)
+        plt.savefig('adata_isoform_latent_time_scvelo.svg')
+        plt.close
+
+def check_gene_velovi(adata, latent_time = False):
+    plt.rcParams['savefig.transparent'] = True
     VELOVI.setup_anndata(adata, spliced_layer="Ms", unspliced_layer="Mu")
     vae = VELOVI(adata)
     vae.train()
     scv.tl.velocity_graph(adata)
     scv.pl.velocity_embedding_stream(adata, basis='umap', color='cell_state',
-                                     title='Gene-Level VeloVI Velocity on Gene-Based UMAP')
+                                     title='Gene-Level VeloVI Velocity on Gene-Based UMAP',
+                                     show = False)
+    plt.savefig('adata_gene_velocity_velovi.svg')
+    plt.close
+
+    if latent_time:
+        latent_time_matrix = vae.get_latent_time()
+        print("latent time matrix shape:", latent_time_matrix.shape)
+        print(latent_time_matrix.head())
+        aggregated_latent_time = latent_time_matrix.mean(axis = 1)
+        aggregated_latent_time = np.max(aggregated_latent_time) - aggregated_latent_time
+        adata.obs['velovi_latent_time_mean'] = aggregated_latent_time
+        scv.pl.umap(adata,
+                    color='velovi_latent_time_mean',
+                    title = "Gene_based UMAP Colored by Latent Time (Velovi)",
+                    color_map='viridis',
+                    show = False)
+        plt.savefig('adata_gene_vlatent_time_velovi.svg')
+        plt.close
     
 
-def check_isoform_velovi(adata, seed):
-    isoforms = list(adata.uns['spliced_isoform_counts'].values())
-    isoforms = np.concatenate(isoforms, axis=0).T
-    adata_isoform = anndata.AnnData(isoforms)
-    adata_isoform.obs['cell_state'] = adata.obs['cell_state'].values
-    sc.pp.normalize_total(adata_isoform, target_sum=1e4)
-    sc.pp.log1p(adata_isoform)
-    sc.tl.pca(adata_isoform, n_comps=50, random_state=seed)
-    sc.pp.neighbors(adata_isoform, n_pcs=50, random_state=seed)
-    sc.tl.umap(adata_isoform, random_state=seed)
-    # sc.pl.umap(
-    #     adata_isoform,
-    #     color='cell_state',
-    #     title='UMAP Based on Isoform Counts',
-    #     frameon=False
-    # )
-    adata.obsm['X_umap_isoform'] = adata_isoform.obsm['X_umap']
-    scv.pp.filter_and_normalize(adata, min_shared_counts=20)
-    scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
+def check_isoform_velovi(adata, latent_time = False):
+    plt.rcParams['savefig.transparent'] = True
+    # scv.pp.filter_and_normalize(adata, min_shared_counts=20)
+    # scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
         
     VELOVI.setup_anndata(adata, spliced_layer="Ms", unspliced_layer="Mu")
     vae = VELOVI(adata)
@@ -280,8 +308,23 @@ def check_isoform_velovi(adata, seed):
         adata,
         basis='umap_isoform',  # Use the isoform-based UMAP coordinates for plotting
         color='cell_state',
-        title='Gene-Level VeloVI Velocity on Isoform-Based UMAP'
+        title='Isoform-Level VeloVI Velocity on Isoform-Based UMAP'
     )
+    if latent_time:
+        latent_time_matrix = vae.get_latent_time()
+        print("latent time matrix shape:", latent_time_matrix.shape)
+        print(latent_time_matrix.head())
+        aggregated_latent_time = latent_time_matrix.mean(axis = 1)
+        aggregated_latent_time = np.max(aggregated_latent_time) - aggregated_latent_time
+        adata.obs['velovi_latent_time_mean'] = aggregated_latent_time
+        sc.pl.scatter(adata,
+                      basis='umap_isoform',
+                      color='velovi_latent_time_mean',
+                      title = "Isoform_based UMAP Colored by Latent Time (Velovi)",
+                      color_map='viridis',
+                      show = False)
+        plt.savefig('adata_isoform_vlatent_time_velovi.svg')
+        plt.close
 
 N_PROGENITOR = 1000
 N_FATE_A = 500
@@ -321,14 +364,16 @@ seed = 33
 np.random.seed(seed)
 
 overlap_is = 0
-adata = simulate(N_PROGENITOR, N_FATE_A, N_FATE_B, N_HOUSEKEEPING, N_DE, N_IS, hk_low_alpha, hk_high_alpha, de_low_alpha, de_high_alpha, hk_low_beta, hk_high_beta, de_low_beta, de_high_beta, hk_low_gamma, hk_high_gamma, de_low_gamma, de_high_gamma,PROGENITOR_START, PROGENITOR_END, FATE_START, FATE_END, iso_low, iso_high, overlap_is, seed)
+# adata = simulate(N_PROGENITOR, N_FATE_A, N_FATE_B, N_HOUSEKEEPING, N_DE, N_IS, hk_low_alpha, hk_high_alpha, de_low_alpha, de_high_alpha, hk_low_beta, hk_high_beta, de_low_beta, de_high_beta, hk_low_gamma, hk_high_gamma, de_low_gamma, de_high_gamma,PROGENITOR_START, PROGENITOR_END, FATE_START, FATE_END, iso_low, iso_high, overlap_is, seed)
 filename = "simulated_data_continuous_" + str(overlap_is) + ".h5ad"
 print(filename)
-adata.write_h5ad(filename)
+# adata.write_h5ad(filename)
 adata = anndata.read_h5ad(filename)
-adata.X = adata.layers['spliced']
-check_gene_scvelo(adata, seed)
-check_isoform_scvelo(adata, seed)
-check_gene_velovi(adata, seed)
-check_isoform_velovi(adata, seed)
+adata_preprocess(adata, seed)
+check_gene_scvelo(adata, latent_time = True)
+check_isoform_scvelo(adata, latent_time= True)
+adata = anndata.read_h5ad(filename)
+adata_preprocess(adata, seed, plot=False)
+check_gene_velovi(adata, latent_time=True)
+check_isoform_velovi(adata, latent_time=True)
 print("Object saved successfully.")
