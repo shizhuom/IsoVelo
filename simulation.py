@@ -364,10 +364,10 @@ seed = 33
 np.random.seed(seed)
 
 overlap_is = 0
-# adata = simulate(N_PROGENITOR, N_FATE_A, N_FATE_B, N_HOUSEKEEPING, N_DE, N_IS, hk_low_alpha, hk_high_alpha, de_low_alpha, de_high_alpha, hk_low_beta, hk_high_beta, de_low_beta, de_high_beta, hk_low_gamma, hk_high_gamma, de_low_gamma, de_high_gamma,PROGENITOR_START, PROGENITOR_END, FATE_START, FATE_END, iso_low, iso_high, overlap_is, seed)
+adata = simulate(N_PROGENITOR, N_FATE_A, N_FATE_B, N_HOUSEKEEPING, N_DE, N_IS, hk_low_alpha, hk_high_alpha, de_low_alpha, de_high_alpha, hk_low_beta, hk_high_beta, de_low_beta, de_high_beta, hk_low_gamma, hk_high_gamma, de_low_gamma, de_high_gamma,PROGENITOR_START, PROGENITOR_END, FATE_START, FATE_END, iso_low, iso_high, overlap_is, seed)
 filename = "simulated_data_continuous_" + str(overlap_is) + ".h5ad"
 print(filename)
-# adata.write_h5ad(filename)
+adata.write_h5ad(filename)
 adata = anndata.read_h5ad(filename)
 adata_preprocess(adata, seed)
 check_gene_scvelo(adata, latent_time = True)
@@ -376,4 +376,5 @@ adata = anndata.read_h5ad(filename)
 adata_preprocess(adata, seed, plot=False)
 check_gene_velovi(adata, latent_time=True)
 check_isoform_velovi(adata, latent_time=True)
+
 print("Object saved successfully.")
