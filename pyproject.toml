@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "IsoVelo"         # pip 上显示的包名，随便大小写
+version = "0.1.0"
+dependencies = []
+
+[tool.setuptools]
+package-dir = {"" = "src"}   # 告诉 setuptools 代码在 src 里
+
+[tool.setuptools.packages.find]
+where = ["src"]              # 自动发现 src 下的包
+
+[project.scripts]
+isovelo = "isovelo.main_process:main" # 安装后命令行可直接用 `isovelo`
