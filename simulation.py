@@ -4,7 +4,7 @@ import pandas as pd
 import anndata
 import scanpy as sc
 import scvelo as scv
-from velovi import preprocess_data, VELOVI
+#from velovi import preprocess_data, VELOVI
 import matplotlib.pyplot as plt
 
 def sigmoid(x, x0, k):
@@ -365,16 +365,38 @@ np.random.seed(seed)
 
 overlap_is = 0
 adata = simulate(N_PROGENITOR, N_FATE_A, N_FATE_B, N_HOUSEKEEPING, N_DE, N_IS, hk_low_alpha, hk_high_alpha, de_low_alpha, de_high_alpha, hk_low_beta, hk_high_beta, de_low_beta, de_high_beta, hk_low_gamma, hk_high_gamma, de_low_gamma, de_high_gamma,PROGENITOR_START, PROGENITOR_END, FATE_START, FATE_END, iso_low, iso_high, overlap_is, seed)
-filename = "simulated_data_continuous_" + str(overlap_is) + ".h5ad"
+adata.var_names = 'gene' + adata.var_names
+adata.obs_names = 'cell' + adata.obs_names
+print(adata.var_names)
+print(adata.obs_names)
+adata.uns['proportions_ground_truth'] = {f"gene{int(key)}": value for key, value in adata.uns['proportions_ground_truth'].items()}
+adata.uns['proportions_observed'] = {f"gene{int(key)}": value for key, value in adata.uns['proportions_observed'].items()}
+adata.uns['spliced_isoform_counts'] = {f"gene{int(key)}": value for key, value in adata.uns['spliced_isoform_counts'].items()}
+adata.uns['proportions_ground_truth']
+iso_count = []
+iso_cols =[]
+p_data = []
+for gene_name in adata.var_names:
+    p = adata.uns['proportions_ground_truth'][gene_name]
+    p_data.append(p)
+    iso = adata.uns['spliced_isoform_counts'][gene_name]
+    iso_count.append(iso)
+    iso_cols += [f"{gene_name}_isoform{i}" for i in range(p.shape[0])]
+iso = np.vstack(iso_count).T
+proportion = np.vstack(p_data).T
+adata.obsm["isoform_counts"] = pd.DataFrame(iso, index = adata.obs_names, columns = iso_cols)
+adata.obsm["proportion"] = pd.DataFrame(proportion, index = adata.obs_names, columns = iso_cols)
+
+filename = "test_simulated_data_continuous_" + str(overlap_is) + ".h5ad"
 print(filename)
 adata.write_h5ad(filename)
-adata = anndata.read_h5ad(filename)
-adata_preprocess(adata, seed)
-check_gene_scvelo(adata, latent_time = True)
-check_isoform_scvelo(adata, latent_time= True)
-adata = anndata.read_h5ad(filename)
-adata_preprocess(adata, seed, plot=False)
-check_gene_velovi(adata, latent_time=True)
-check_isoform_velovi(adata, latent_time=True)
+#adata = anndata.read_h5ad(filename)
+#adata_preprocess(adata, seed)
+#check_gene_scvelo(adata, latent_time = True)
+#check_isoform_scvelo(adata, latent_time= True)
+#adata = anndata.read_h5ad(filename)
+#adata_preprocess(adata, seed, plot=False)
+#check_gene_velovi(adata, latent_time=True)
+#check_isoform_velovi(adata, latent_time=True)
 
 print("Object saved successfully.")
