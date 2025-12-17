@@ -130,6 +130,8 @@ def preprocess_and_initialize_scvelo(
     
     # 4. Run scVelo dynamical mode.
     print("Preparing scVelo results:")
+    adata.layers['raw_unspliced'] = adata.layers['unspliced'].copy()
+    adata.layers['raw_spliced'] = adata.layers['spliced'].copy()
     if not normalized:
         scv.pp.filter_and_normalize(adata, min_counts=0, min_cells=0, log=True)
         scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
@@ -137,6 +139,7 @@ def preprocess_and_initialize_scvelo(
         scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
     
     scv.tl.recover_dynamics(adata, var_names='all', n_jobs=-1)
+    scv.tl.latent_time(adata)
 
     n_total = adata.n_vars
     n_fitted = adata.var['fit_alpha'].notnull().sum()
