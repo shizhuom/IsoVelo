@@ -7,6 +7,7 @@ from tqdm import tqdm
 import pickle
 from scipy.io import mmread
 from pathlib import Path
+from scipy import sparse
 
 def preprocess_and_initialize_scvelo(
     adata, 
@@ -151,7 +152,7 @@ def preprocess_and_initialize_scvelo(
     return adata
 
 
-def get_splicing_count(file_path):
+def get_splicing_count(file_path, level = "isoform"):
     with open(file_path, "rb") as f:
         obj = pickle.load(f)
         
@@ -161,4 +162,24 @@ def get_splicing_count(file_path):
     mtx_path = Path(file_path).with_suffix(".mtx")
     X = mmread(mtx_path).tocsr()
 
-    return pd.DataFrame.sparse.from_spatrix(X, index=rows, columns=cols)
+    if level == "isoform":
+        return pd.DataFrame.sparse.from_spatrix(X, index=rows, columns=cols)
+    elif level == "gene":
+        isoform_names = df.columns.to_numpy()
+        genes = np.array([s.rsplit('_', 1)[0] for s in isoform_names])
+
+        uniq_genes, gene_idx = np.unique(genes, return_inverse=True)
+
+        X = sparse.csr_matrix(df.to_numpy())
+
+        n_iso = len(isoform_names)
+        M = sparse.csr_matrix(
+            (np.ones(n_iso, dtype=np.int8), (np.arange(n_iso), gene_idx)),
+            shape=(n_iso, len(uniq_genes))
+        )
+
+        X_gene = X @ M
+
+        df_gene = pd.DataFrame.sparse.from_spmatrix(X_gene, index=df.index, columns=uniq_genes)
+
+        return df_gene
