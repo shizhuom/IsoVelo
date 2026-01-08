@@ -165,6 +165,8 @@ def get_splicing_count(file_path, level = "isoform"):
     if level == "isoform":
         return pd.DataFrame.sparse.from_spatrix(X, index=rows, columns=cols)
     elif level == "gene":
+        df = pd.DataFrame.sparse.from_spatrix(X, index=rows, columns=cols)
+        
         isoform_names = df.columns.to_numpy()
         genes = np.array([s.rsplit('_', 1)[0] for s in isoform_names])
 
