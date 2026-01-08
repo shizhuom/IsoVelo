@@ -4,6 +4,9 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 from tqdm import tqdm
+import pickle
+from scipy.io import mmread
+from pathlib import Path
 
 def preprocess_and_initialize_scvelo(
     adata, 
@@ -146,3 +149,16 @@ def preprocess_and_initialize_scvelo(
     print(f"Dynamics recovered for {n_fitted}/{n_total} genes.")
 
     return adata
+
+
+def get_splicing_count(file_path):
+    with open(file_path, "rb") as f:
+        obj = pickle.load(f)
+        
+    rows = list(obj["obs"])
+    cols = list(obj["var"])
+
+    mtx_path = Path(file_path).with_suffix(".mtx")
+    X = mmread(mtx_path).tocsr()
+
+    return pd.DataFrame.sparse.from_spatrix(X, index=rows, columns=cols)
