@@ -88,14 +88,7 @@ class IsoVelo_DNN_layer(nn.Module):
             splices = torch.tensor(splices, dtype=torch.float32)
         
         input_tensor = torch.cat([unsplice.unsqueeze(1), splices], dim=1).float()
-        
-        # #region agent log H9 - forward input check
-        import json as _json
-        _log_path = r'd:\GitHub\cellDancer\.cursor\debug.log'
-        has_nan_input = bool(torch.isnan(input_tensor).any())
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H9","location":"forward:input","message":"input check","data":{"input_shape":list(input_tensor.shape),"input_dtype":str(input_tensor.dtype),"has_nan":has_nan_input,"input_sample":str(input_tensor[0,:5].tolist()) if input_tensor.shape[0]>0 else 'empty'},"timestamp":__import__('time').time()}) + '\n')
-        # #endregion
-        
+                
         # Forward through network
         x = self.l1(input_tensor)
         x = F.leaky_relu(x)
@@ -309,13 +302,7 @@ class IsoVelo_DNN_module(nn.Module):
         """
         n_cells = unsplice.shape[0]
         n_isoforms = len(isoform_names)
-        
-        # #region agent log H7 - summary_para input shapes
-        import json as _json
-        _log_path = r'd:\GitHub\cellDancer\.cursor\debug.log'
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H7","location":"summary_para:entry","message":"input shapes","data":{"n_cells":n_cells,"n_isoforms":n_isoforms,"unsplice_shape":list(unsplice.shape) if hasattr(unsplice,'shape') else 'N/A',"splices_shape":list(splices.shape) if hasattr(splices,'shape') else 'N/A',"unsplice_predict_shape":list(unsplice_predict.shape) if hasattr(unsplice_predict,'shape') else 'N/A',"splice_predicts_shape":list(splice_predicts.shape) if hasattr(splice_predicts,'shape') else 'N/A',"alpha_shape":list(alpha.shape) if hasattr(alpha,'shape') else 'N/A',"betas_shape":list(betas.shape) if hasattr(betas,'shape') else 'N/A',"alpha_sample":str(alpha[:3]) if len(alpha)>0 else 'empty'},"timestamp":__import__('time').time()}) + '\n')
-        # #endregion
-        
+                
         # Create DataFrame with isoform-level data
         rows = []
         for k, isoform in enumerate(isoform_names):
@@ -431,8 +418,13 @@ class IsoVelo_ltModule(pl.LightningModule):
         # Initial parameter values
         alpha0 = np.float32(unsplicemax * self.initial_zoom)
         beta0s = torch.ones(n_isoforms, dtype=torch.float32)
+        # Guard against 0/0 when unsplicemax or splicemaxs are zero.
+        eps = np.float32(1e-8)
         gamma0s = torch.tensor(
-            [unsplicemax / splicemaxs[k] * self.initial_strech for k in range(n_isoforms)],
+            [
+                (unsplicemax / (splicemaxs[k] if splicemaxs[k] > 0 else eps)) * self.initial_strech
+                for k in range(n_isoforms)
+            ],
             dtype=torch.float32
         )
         
@@ -493,12 +485,6 @@ class IsoVelo_ltModule(pl.LightningModule):
         splices = splices_list[0]
         gene_name = gene_names[0]
         
-        # #region agent log H6 - raw isoform_names_list structure
-        import json as _json
-        _log_path = r'd:\GitHub\cellDancer\.cursor\debug.log'
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H6","location":"test_step:raw","message":"raw isoform_names_list","data":{"type":str(type(isoform_names_list)),"len":len(isoform_names_list) if hasattr(isoform_names_list,'__len__') else 'N/A',"first_type":str(type(isoform_names_list[0])) if len(isoform_names_list)>0 else 'N/A',"first_len":len(isoform_names_list[0]) if hasattr(isoform_names_list[0],'__len__') else 'N/A',"sample":str(isoform_names_list)[:200]},"timestamp":__import__('time').time()}) + '\n')
-        # #endregion
-        
         # Fix: DataLoader wraps each isoform name in a single-element tuple
         # Structure is: [('iso1',), ('iso2',), ...] - need to extract strings
         isoform_names = []
@@ -523,8 +509,11 @@ class IsoVelo_ltModule(pl.LightningModule):
         
         alpha0 = np.float32(unsplicemax * 2)
         beta0s = torch.ones(n_isoforms, dtype=torch.float32)
+        # Guard against 0/0 when unsplicemax or splicemaxs are zero.
+        eps = np.float32(1e-8)
         gamma0s = torch.tensor(
-            [unsplicemax / splicemaxs[k] for k in range(n_isoforms)],
+            [unsplicemax / (splicemaxs[k] if splicemaxs[k] > 0 else eps)
+             for k in range(n_isoforms)],
             dtype=torch.float32
         )
         
@@ -768,12 +757,6 @@ def _isovelo_train_thread(datamodule,
         
         loss_df = model.validation_loss_df
         isovelo_df = model.test_isovelo_df
-        
-        # #region agent log H8 - check isovelo_df after test
-        import json as _json
-        _log_path = r'd:\GitHub\cellDancer\.cursor\debug.log'
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H8","location":"train_thread:after_test","message":"isovelo_df after test","data":{"gene":gene_name,"rows":len(isovelo_df) if isovelo_df is not None else 0,"alpha_notna":int(isovelo_df['alpha'].notna().sum()) if isovelo_df is not None and 'alpha' in isovelo_df.columns else 0,"columns":list(isovelo_df.columns) if isovelo_df is not None else []},"timestamp":__import__('time').time()}) + '\n')
-        # #endregion
         
         # Denormalize if needed
         if norm_u_s:
@@ -1115,15 +1098,6 @@ def isovelo_velocity(
         
         # Calculate number of isoforms for each gene
         gene_isoform_counts = isovelo_u_s.groupby('gene_name')['isoform_name'].nunique()
-        
-        # #region agent log H1-H4
-        import json as _json
-        _log_path = r'd:\GitHub\cellDancer\.cursor\debug.log'
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H1","location":"isovelo_estimation.py:1048","message":"isovelo_df shape","data":{"rows":len(isovelo_df),"cols":len(isovelo_df.columns)},"timestamp":__import__('time').time()}) + '\n')
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H3","location":"isovelo_estimation.py:1049","message":"embedding_info shape","data":{"rows":len(embedding_info),"first_gene":first_gene,"first_isoform":first_isoform},"timestamp":__import__('time').time()}) + '\n')
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H2","location":"isovelo_estimation.py:1050","message":"genes in isovelo_df","data":{"genes":list(isovelo_df.gene_name.drop_duplicates()),"count":len(isovelo_df.gene_name.drop_duplicates())},"timestamp":__import__('time').time()}) + '\n')
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H1","location":"isovelo_estimation.py:1051","message":"gene_isoform_counts","data":{str(k):int(v) for k,v in gene_isoform_counts.items()},"timestamp":__import__('time').time()}) + '\n')
-        # #endregion
         
         # Repeat embedding info for each gene-isoform combination
         embedding_rows = []

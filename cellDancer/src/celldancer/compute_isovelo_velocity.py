@@ -103,8 +103,16 @@ def compute_isovelo_velocity(
         cell_matrix[np.isnan(cell_matrix)] = 0
         velocity_matrix[np.isnan(velocity_matrix)] = 0
         corrcoef = velocity_correlation(cell_matrix, velocity_matrix)
-        probability_matrix = np.exp(corrcoef / sigma_corr) * knn_embedding.A
-        probability_matrix /= probability_matrix.sum(1)[:, None]
+        knn_mask = knn_embedding.A.astype(bool)
+        scaled = np.where(knn_mask, corrcoef / sigma_corr, -np.inf)
+        row_max = np.max(scaled, axis=1, keepdims=True)
+        row_max[~np.isfinite(row_max)] = 0
+        probability_matrix = np.exp(scaled - row_max)
+        probability_matrix = np.where(np.isfinite(probability_matrix), probability_matrix, 0)
+        row_sum = probability_matrix.sum(1, keepdims=True)
+        probability_matrix = np.divide(
+            probability_matrix, row_sum, out=np.zeros_like(probability_matrix), where=row_sum != 0
+        )
         unitary_vectors = embedding.T[:, None, :] - embedding.T[:, :, None]
         with np.errstate(divide='ignore', invalid='ignore'):
             unitary_vectors /= np.linalg.norm(unitary_vectors, ord=2, axis=0)
@@ -181,17 +189,28 @@ def compute_isovelo_velocity(
         isovelo_df.drop(['velocity1', 'velocity2'], axis=1, inplace=True)
     
     # Map velocity back to all isoforms
-    # First, create a mapping from cellIndex to velocity
-    velocity_dict = {}
-    for idx, cell_idx in enumerate(sampling_ixs):
-        velocity_dict[cell_idx] = (velocity_embedding[idx, 0], velocity_embedding[idx, 1])
+    use_cell_id = 'cellID' in isovelo_df_input.columns
+    if use_cell_id:
+        sampled_cell_ids = temp_df.iloc[sampling_ixs]['cellID'].tolist()
+        velocity_dict = {
+            cell_id: (velocity_embedding[idx, 0], velocity_embedding[idx, 1])
+            for idx, cell_id in enumerate(sampled_cell_ids)
+        }
+    else:
+        velocity_dict = {
+            cell_idx: (velocity_embedding[idx, 0], velocity_embedding[idx, 1])
+            for idx, cell_idx in enumerate(sampling_ixs)
+        }
     
     # Apply velocity to all rows in isovelo_df_input
     isovelo_df_input['velocity1'] = np.nan
     isovelo_df_input['velocity2'] = np.nan
     
-    for cell_idx, (v1, v2) in velocity_dict.items():
-        mask = isovelo_df_input.cellIndex == cell_idx
+    for cell_key, (v1, v2) in velocity_dict.items():
+        if use_cell_id:
+            mask = isovelo_df_input.cellID == cell_key
+        else:
+            mask = isovelo_df_input.cellIndex == cell_key
         isovelo_df_input.loc[mask, 'velocity1'] = v1
         isovelo_df_input.loc[mask, 'velocity2'] = v2
     
@@ -355,8 +374,16 @@ def compute_isovelo_velocity_per_isoform(
             c_matrix[i, :] = corr_coeff(cell_matrix, velocity_matrix, i)[0, :]
         np.fill_diagonal(c_matrix, 0)
         
-        probability_matrix = np.exp(c_matrix / sigma_corr) * knn_embedding.A
-        probability_matrix /= probability_matrix.sum(1)[:, None]
+        knn_mask = knn_embedding.A.astype(bool)
+        scaled = np.where(knn_mask, c_matrix / sigma_corr, -np.inf)
+        row_max = np.max(scaled, axis=1, keepdims=True)
+        row_max[~np.isfinite(row_max)] = 0
+        probability_matrix = np.exp(scaled - row_max)
+        probability_matrix = np.where(np.isfinite(probability_matrix), probability_matrix, 0)
+        row_sum = probability_matrix.sum(1, keepdims=True)
+        probability_matrix = np.divide(
+            probability_matrix, row_sum, out=np.zeros_like(probability_matrix), where=row_sum != 0
+        )
         
         unitary_vectors = embedding.T[:, None, :] - embedding.T[:, :, None]
         with np.errstate(divide='ignore', invalid='ignore'):
@@ -381,8 +408,15 @@ def compute_isovelo_velocity_per_isoform(
     iso_df['velocity1'] = np.nan
     iso_df['velocity2'] = np.nan
     
-    for idx, cell_idx in enumerate(sampling_ixs):
-        iso_df.loc[iso_df.cellIndex == cell_idx, 'velocity1'] = velocity_embedding[idx, 0]
-        iso_df.loc[iso_df.cellIndex == cell_idx, 'velocity2'] = velocity_embedding[idx, 1]
+    use_cell_id = 'cellID' in iso_df.columns
+    if use_cell_id:
+        sampled_cell_ids = iso_df.iloc[sampling_ixs]['cellID'].tolist()
+        for idx, cell_id in enumerate(sampled_cell_ids):
+            iso_df.loc[iso_df.cellID == cell_id, 'velocity1'] = velocity_embedding[idx, 0]
+            iso_df.loc[iso_df.cellID == cell_id, 'velocity2'] = velocity_embedding[idx, 1]
+    else:
+        for idx, cell_idx in enumerate(sampling_ixs):
+            iso_df.loc[iso_df.cellIndex == cell_idx, 'velocity1'] = velocity_embedding[idx, 0]
+            iso_df.loc[iso_df.cellIndex == cell_idx, 'velocity2'] = velocity_embedding[idx, 1]
     
     return iso_df
