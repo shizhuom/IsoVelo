@@ -89,3 +89,28 @@ IsoVelo_u_s = IsoVelo_u_s[[
 ]]
 
 IsoVelo_u_s.to_parquet('./examples/isovelo/data/137d_run2_IsoVelo_u_s.parquet', engine='pyarrow')
+## IsoVelo_u_s = pd.read_parquet('./examples/isovelo/data/137d_run2_IsoVelo_u_s.parquet')
+
+gene_counts = IsoVelo_u_s['gene_name'].value_counts()
+top_5_genes = gene_counts.head(5).index.tolist()
+
+isoform_counts = IsoVelo_u_s.groupby('gene_name')['isoform_name'].nunique()
+isoform_counts = isoform_counts.sort_values(ascending=False)
+
+isoform_counts
+
+IsoVelo_u_s = IsoVelo_u_s[IsoVelo_u_s['gene_name'].isin(top_5_genes)]
+
+loss_df, isovelo_df = isovelo_velocity(
+    isovelo_u_s=IsoVelo_u_s,
+    gene_list=None,  # All genes
+    max_epoches=200,
+    n_neighbors=30,
+    loss_func='cosine'
+)
+
+isovelo_df = compute_isovelo_velocity(
+    isovelo_df,
+    speed_up=(60, 60),
+    projection_neighbor_size=200
+)
