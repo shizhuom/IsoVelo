@@ -99,8 +99,6 @@ class IsoVelo_DNN_layer(nn.Module):
         
         # #region agent log H9 - forward output check
         has_nan_output = bool(torch.isnan(output).any())
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H9","location":"forward:output","message":"network output","data":{"output_shape":list(output.shape),"has_nan":has_nan_output,"output_sample":str(output[0,:5].tolist()) if output.shape[0]>0 else 'empty'},"timestamp":__import__('time').time()}) + '\n')
-        # #endregion
         
         # Parse output: [alpha, beta_1, ..., beta_K, gamma_1, ..., gamma_K]
         alpha = output[:, 0]
@@ -322,10 +320,6 @@ class IsoVelo_DNN_module(nn.Module):
         
         isovelo_df = pd.DataFrame(rows)
         
-        # #region agent log H7 - summary_para output
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H7","location":"summary_para:output","message":"output check","data":{"rows":len(isovelo_df),"alpha_notna":int(isovelo_df['alpha'].notna().sum()),"sample_alpha":str(isovelo_df['alpha'].head(3).tolist())},"timestamp":__import__('time').time()}) + '\n')
-        # #endregion
-        
         return isovelo_df
 
 
@@ -503,10 +497,6 @@ class IsoVelo_ltModule(pl.LightningModule):
         
         n_isoforms = splices.shape[1]
         
-        # #region agent log H5 - test_step data
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H5","location":"test_step:entry","message":"test_step data shapes","data":{"gene_name":str(gene_name),"n_isoforms_from_splices":int(n_isoforms),"isoform_names_type":str(type(isoform_names)),"isoform_names_len":len(isoform_names) if hasattr(isoform_names,'__len__') else 'N/A',"unsplice_shape":list(unsplice.shape),"splices_shape":list(splices.shape)},"timestamp":__import__('time').time()}) + '\n')
-        # #endregion
-        
         alpha0 = np.float32(unsplicemax * 2)
         beta0s = torch.ones(n_isoforms, dtype=torch.float32)
         # Guard against 0/0 when unsplicemax or splicemaxs are zero.
@@ -535,10 +525,6 @@ class IsoVelo_ltModule(pl.LightningModule):
             cost, isoform_names
         )
         
-        # #region agent log H5 - output size
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H5","location":"test_step:output","message":"test_isovelo_df size","data":{"gene_name":str(gene_name),"rows":len(self.test_isovelo_df),"expected_rows":int(n_isoforms)*len(unsplice)},"timestamp":__import__('time').time()}) + '\n')
-        # #endregion
-        
         self.test_isovelo_df.insert(1, "gene_name", gene_name)
 
 
@@ -550,13 +536,15 @@ class IsoVelo_getItem(Dataset):
     """
     
     def __init__(self, data_fit=None, data_predict=None, datastatus="predict_dataset",
-                 permutation_ratio=0.1, norm_u_s=True, norm_cell_distribution=False):
+                 permutation_ratio=0.1, norm_u_s=True, norm_cell_distribution=False,
+                 retain_nonzero=True):
         self.data_fit = data_fit
         self.data_predict = data_predict
         self.datastatus = datastatus
         self.permutation_ratio = permutation_ratio
         self.norm_u_s = norm_u_s
         self.norm_cell_distribution = norm_cell_distribution
+        self.retain_nonzero = retain_nonzero
         
         # Get unique genes
         self.gene_names = list(data_fit.gene_name.drop_duplicates())
@@ -588,6 +576,11 @@ class IsoVelo_getItem(Dataset):
                 # Sample cells (need to sample same cells across all isoforms)
                 cellIDs = gene_data.cellID.drop_duplicates()
                 sampled_cellIDs = cellIDs.sample(frac=self.permutation_ratio)
+                if self.retain_nonzero:
+                    nonzero_cellIDs = gene_data[
+                        (gene_data.unsplice > 0) | (gene_data.splice > 0)
+                    ].cellID.drop_duplicates()
+                    sampled_cellIDs = pd.Index(sampled_cellIDs).union(nonzero_cellIDs)
                 data = gene_data[gene_data.cellID.isin(sampled_cellIDs)]
             else:
                 print('sampling ratio is wrong!')
@@ -648,19 +641,20 @@ class IsoVelo_feedData(pl.LightningDataModule):
     """
     
     def __init__(self, data_fit=None, data_predict=None, permutation_ratio=1,
-                 norm_u_s=True, norm_cell_distribution=False):
+                 norm_u_s=True, norm_cell_distribution=False, retain_nonzero=True):
         super().__init__()
         
         self.fit_dataset = IsoVelo_getItem(
             data_fit=data_fit, data_predict=data_predict,
             datastatus="fit_dataset", permutation_ratio=permutation_ratio,
-            norm_u_s=norm_u_s, norm_cell_distribution=norm_cell_distribution
+            norm_u_s=norm_u_s, norm_cell_distribution=norm_cell_distribution,
+            retain_nonzero=retain_nonzero
         )
         
         self.predict_dataset = IsoVelo_getItem(
             data_fit=data_fit, data_predict=data_predict,
             datastatus="predict_dataset", permutation_ratio=permutation_ratio,
-            norm_u_s=norm_u_s
+            norm_u_s=norm_u_s, retain_nonzero=retain_nonzero
         )
 
     def subset(self, indices):
@@ -804,7 +798,8 @@ def build_isovelo_datamodule(isovelo_u_s,
                              downsample_method='neighbors',
                              n_neighbors_downsample=30,
                              step=(200, 200),
-                             downsample_target_amount=None):
+                             downsample_target_amount=None,
+                             retain_nonzero=True):
     """
     Build data module for isoform-level velocity estimation.
     """
@@ -839,14 +834,21 @@ def build_isovelo_datamodule(isovelo_u_s,
         )
         
         downsample_cellid = sample_data.cellID.iloc[sampling_ixs]
-        data_df_downsampled = data_df[data_df.cellID.isin(downsample_cellid)]
+        keep_cellid = pd.Index(downsample_cellid)
+        if retain_nonzero:
+            nonzero_cellid = data_df[
+                (data_df.unsplice > 0) | (data_df.splice > 0)
+            ].cellID.drop_duplicates()
+            keep_cellid = keep_cellid.union(nonzero_cellid)
+        data_df_downsampled = data_df[data_df.cellID.isin(keep_cellid)]
         
         feed_data = IsoVelo_feedData(
             data_fit=data_df_downsampled,
             data_predict=data_df,
             permutation_ratio=permutation_ratio,
             norm_u_s=norm_u_s,
-            norm_cell_distribution=norm_cell_distribution
+            norm_cell_distribution=norm_cell_distribution,
+            retain_nonzero=retain_nonzero
         )
     else:
         feed_data = IsoVelo_feedData(
@@ -854,7 +856,8 @@ def build_isovelo_datamodule(isovelo_u_s,
             data_predict=data_df,
             permutation_ratio=permutation_ratio,
             norm_u_s=norm_u_s,
-            norm_cell_distribution=norm_cell_distribution
+            norm_cell_distribution=norm_cell_distribution,
+            retain_nonzero=retain_nonzero
         )
     
     return feed_data
@@ -876,6 +879,7 @@ def isovelo_velocity(
     loss_func='cosine',
     n_jobs=-1,
     save_path=None,
+    retain_nonzero=True,
 ):
     """
     Isoform-level velocity estimation for each cell.
@@ -914,6 +918,9 @@ def isovelo_velocity(
         
     norm_cell_distribution: optional, `bool` (default: True)
         Whether to remove cell distribution bias.
+        
+    retain_nonzero: optional, `bool` (default: True)
+        Ensure cells with nonzero unsplice/splice are always kept in sampling.
         
     loss_func: optional, `str` (default: 'cosine')
         Loss function type: 'cosine' or 'rmse'.
@@ -972,7 +979,8 @@ def isovelo_velocity(
     gene_list_burning = [list(isovelo_u_s.gene_name.drop_duplicates())[0]]
     datamodule = build_isovelo_datamodule(
         isovelo_u_s, speed_up, norm_u_s, permutation_ratio,
-        norm_cell_distribution, gene_list=gene_list_burning
+        norm_cell_distribution, gene_list=gene_list_burning,
+        retain_nonzero=retain_nonzero
     )
     
     result = Parallel(n_jobs=n_jobs, backend="loky")(
@@ -1021,7 +1029,8 @@ def isovelo_velocity(
         gene_list_batch = gene_list[id_range[0]:id_range[1]]
         datamodule = build_isovelo_datamodule(
             isovelo_u_s, speed_up, norm_u_s, permutation_ratio,
-            norm_cell_distribution, gene_list=gene_list_batch
+            norm_cell_distribution, gene_list=gene_list_batch,
+            retain_nonzero=retain_nonzero
         )
         
         result = Parallel(n_jobs=n_jobs, backend="loky")(
@@ -1105,14 +1114,8 @@ def isovelo_velocity(
             n_isoforms = gene_isoform_counts[gene]
             gene_embedding = pd.concat([embedding_info] * n_isoforms, ignore_index=True)
             embedding_rows.append(gene_embedding)
-            # #region agent log H4
-            with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H4","location":"isovelo_estimation.py:loop","message":"gene_embedding size","data":{"gene":gene,"n_isoforms":int(n_isoforms),"gene_embedding_rows":len(gene_embedding)},"timestamp":__import__('time').time()}) + '\n')
-            # #endregion
         
         embedding_col = pd.concat(embedding_rows, ignore_index=True)
-        # #region agent log H4
-        with open(_log_path, 'a') as _f: _f.write(_json.dumps({"hypothesisId":"H4","location":"isovelo_estimation.py:1057","message":"final sizes before assignment","data":{"embedding_col_rows":len(embedding_col),"isovelo_df_rows":len(isovelo_df),"match":len(embedding_col)==len(isovelo_df)},"timestamp":__import__('time').time()}) + '\n')
-        # #endregion
         embedding_col.index = isovelo_df.index
         isovelo_df = pd.concat([isovelo_df, embedding_col], axis=1)
         
