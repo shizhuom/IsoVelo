@@ -1,12 +1,12 @@
-"""
+﻿"""
 IsoVelo: Isoform-level RNA velocity estimation module.
 
 This module extends cellDancer to support isoform-level RNA velocity estimation,
 where for each gene with K isoforms:
-    du/dt = α(t) - Σ(k=1 to K) β_k(t) × u
-    ds_k/dt = β_k(t) × u - γ_k(t) × s_k
+    du/dt = Î±(t) - Î£(k=1 to K) Î²_k(t) Ã— u
+    ds_k/dt = Î²_k(t) Ã— u - Î³_k(t) Ã— s_k
 
-Parameters estimated: α (gene-specific), β_k, γ_k (isoform-specific)
+Parameters estimated: Î± (gene-specific), Î²_k, Î³_k (isoform-specific)
 """
 
 import os
@@ -60,7 +60,8 @@ class IsoVelo_DNN_layer(nn.Module):
         # Output: 1 (alpha) + K (beta) + K (gamma) = 2K+1
         self.l3 = nn.Linear(h2, 2 * n_isoforms + 1)
 
-    def forward(self, unsplice, splices, alpha0, beta0s, gamma0s, dt):
+    def forward(self, unsplice, splices, alpha0, beta0s, gamma0s, dt,
+                alpha_scale=None, beta_scale=None):
         """
         Forward pass for isoform-level velocity estimation.
         
@@ -71,6 +72,8 @@ class IsoVelo_DNN_layer(nn.Module):
             beta0s: Tensor of shape (n_isoforms,) - initial beta scaling factors
             gamma0s: Tensor of shape (n_isoforms,) - initial gamma scaling factors
             dt: Time step
+            alpha_scale: Optional scaling factor for alpha (e.g., 1 / unsplicemax)
+            beta_scale: Optional scaling factors for beta in splice dynamics
             
         Returns:
             unsplice_predict: Predicted unspliced counts
@@ -104,23 +107,34 @@ class IsoVelo_DNN_layer(nn.Module):
         alpha = output[:, 0]
         betas = output[:, 1:self.n_isoforms + 1]
         gammas = output[:, self.n_isoforms + 1:]
-        
-        # Scale by initial values
+
+        # Scale by initial values (parameters in original units)
         alpha = alpha * alpha0
         betas = betas * beta0s.unsqueeze(0)  # broadcast across cells
         gammas = gammas * gamma0s.unsqueeze(0)
-        
+
+        # Apply normalization-aware scaling for dynamics.
+        # alpha_scale = 1 / unsplicemax (scalar), beta_scale = unsplicemax / splicemaxs (per isoform)
+        if alpha_scale is None:
+            alpha_scaled = alpha
+        else:
+            alpha_scaled = alpha * alpha_scale
+
+        if beta_scale is None:
+            betas_scaled = betas
+        else:
+            if not isinstance(beta_scale, torch.Tensor):
+                beta_scale = torch.tensor(beta_scale, dtype=betas.dtype, device=betas.device)
+            betas_scaled = betas * beta_scale.unsqueeze(0)
+
         # Compute predictions using the isoform model:
-        # du/dt = α - Σ(β_k × u)
-        # ds_k/dt = β_k × u - γ_k × s_k
-        
-        # Sum of all beta * u for unsplice dynamics
+        # du/dt = alpha - sum(beta_k * u)
+        # ds_k/dt = (beta_k * u) - gamma_k * s_k
         sum_beta_u = torch.sum(betas * unsplice.unsqueeze(1), dim=1)
-        unsplice_predict = unsplice + (alpha - sum_beta_u) * dt
-        
-        # Each isoform's splice dynamics
-        splice_predicts = splices + (betas * unsplice.unsqueeze(1) - gammas * splices) * dt
-        
+        unsplice_predict = unsplice + (alpha_scaled - sum_beta_u) * dt
+
+        splice_predicts = splices + (betas_scaled * unsplice.unsqueeze(1) - gammas * splices) * dt
+
         return unsplice_predict, splice_predicts, alpha, betas, gammas
 
     def save(self, model_path):
@@ -158,6 +172,8 @@ class IsoVelo_DNN_module(nn.Module):
                            dt,
                            embedding1,
                            embedding2,
+                           alpha_scale=None,
+                           beta_scale=None,
                            isoform_names=None,
                            barcode=None,
                            loss_func=None,
@@ -175,6 +191,8 @@ class IsoVelo_DNN_module(nn.Module):
             gamma0s: Array of shape (n_isoforms,)
             dt: Time step
             embedding1, embedding2: Embedding coordinates
+            alpha_scale: Optional scaling for alpha (e.g., 1 / unsplicemax)
+            beta_scale: Optional scaling for beta in splice dynamics (e.g., unsplicemax / splicemaxs)
             isoform_names: List of isoform names
             loss_func: Loss function type
         """
@@ -192,7 +210,8 @@ class IsoVelo_DNN_module(nn.Module):
         
         # Forward pass
         unsplice_predict, splice_predicts, alpha, betas, gammas = self.module(
-            unsplice, splices, alpha0, beta0s, gamma0s, dt
+            unsplice, splices, alpha0, beta0s, gamma0s, dt,
+            alpha_scale=alpha_scale, beta_scale=beta_scale
         )
         
         n_isoforms = splices.shape[1]
@@ -412,11 +431,13 @@ class IsoVelo_ltModule(pl.LightningModule):
         # Initial parameter values
         alpha0 = np.float32(unsplicemax * self.initial_zoom)
         beta0s = torch.ones(n_isoforms, dtype=torch.float32)
+        gamma0s = torch.ones(n_isoforms, dtype=torch.float32) * self.initial_strech
         # Guard against 0/0 when unsplicemax or splicemaxs are zero.
         eps = np.float32(1e-8)
-        gamma0s = torch.tensor(
+        alpha_scale = np.float32(1.0 / (unsplicemax if unsplicemax > 0 else eps))
+        beta_scale = torch.tensor(
             [
-                (unsplicemax / (splicemaxs[k] if splicemaxs[k] > 0 else eps)) * self.initial_strech
+                unsplicemax / (splicemaxs[k] if splicemaxs[k] > 0 else eps)
                 for k in range(n_isoforms)
             ],
             dtype=torch.float32
@@ -426,6 +447,8 @@ class IsoVelo_ltModule(pl.LightningModule):
             self.backbone.velocity_calculate(
                 unsplice, splices, alpha0, beta0s, gamma0s, self.dt,
                 embedding1, embedding2,
+                alpha_scale=alpha_scale,
+                beta_scale=beta_scale,
                 isoform_names=isoform_names,
                 loss_func=self.loss_func,
                 cost2_cutoff=self.cost2_cutoff,
@@ -497,11 +520,13 @@ class IsoVelo_ltModule(pl.LightningModule):
         
         n_isoforms = splices.shape[1]
         
-        alpha0 = np.float32(unsplicemax * 2)
+        alpha0 = np.float32(unsplicemax * self.initial_zoom)
         beta0s = torch.ones(n_isoforms, dtype=torch.float32)
+        gamma0s = torch.ones(n_isoforms, dtype=torch.float32) * self.initial_strech
         # Guard against 0/0 when unsplicemax or splicemaxs are zero.
         eps = np.float32(1e-8)
-        gamma0s = torch.tensor(
+        alpha_scale = np.float32(1.0 / (unsplicemax if unsplicemax > 0 else eps))
+        beta_scale = torch.tensor(
             [unsplicemax / (splicemaxs[k] if splicemaxs[k] > 0 else eps)
              for k in range(n_isoforms)],
             dtype=torch.float32
@@ -511,6 +536,8 @@ class IsoVelo_ltModule(pl.LightningModule):
             self.backbone.velocity_calculate(
                 unsplice, splices, alpha0, beta0s, gamma0s, self.dt,
                 embedding1, embedding2,
+                alpha_scale=alpha_scale,
+                beta_scale=beta_scale,
                 isoform_names=isoform_names,
                 loss_func=self.loss_func,
                 cost2_cutoff=self.cost2_cutoff,
@@ -762,8 +789,6 @@ def _isovelo_train_thread(datamodule,
                 mask = isovelo_df['isoform_name'] == isoform
                 isovelo_df.loc[mask, 'splice'] = isovelo_df.loc[mask, 'splice'] * splicemaxs[k]
                 isovelo_df.loc[mask, 'splice_predict'] = isovelo_df.loc[mask, 'splice_predict'] * splicemaxs[k]
-                isovelo_df.loc[mask, 'beta'] = isovelo_df.loc[mask, 'beta'] * unsplicemax
-                isovelo_df.loc[mask, 'gamma'] = isovelo_df.loc[mask, 'gamma'] * splicemaxs[k]
         
         if model_save_path is not None:
             model.save(model_save_path)
