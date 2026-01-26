@@ -6,7 +6,8 @@ from src.celldancer.compute_isovelo_velocity import compute_isovelo_velocity, co
 import numpy as np
 import matplotlib.pyplot as plt
 
-IsoVelo_u_s = pd.read_parquet('./examples/isovelo/data/137d_run2_IsoVelo_u_s.parquet')
+# IsoVelo_u_s = pd.read_parquet('./examples/isovelo/data/137d_run2_IsoVelo_u_s.parquet')
+IsoVelo_u_s = pd.read_parquet('./examples/isovelo/data/all_samples_IsoVelo_u_s_intersection.parquet')
 genes = pd.read_parquet('./examples/isovelo/data/isoform_switch_genes.parquet')
 genes = genes[(genes["p_gene_adj"] > 0.99) & (genes["p_DTU_gene_adj"] < 0.05)]["genes"].unique().tolist()
 
@@ -16,11 +17,11 @@ loss_df, isovelo_df = isovelo_velocity(
     speed_up=False,
     permutation_ratio=1,
     n_neighbors=30,
-    max_epoches=2000,
+    max_epoches=20000,
     loss_func='cosine'
 )
 
-IsoVelo_u_s[IsoVelo_u_s["gene_name"].isin(genes[0:2])].to_csv('./examples/isovelo/data/137d_run2_IsoVelo_u_s_processed.csv')
+# IsoVelo_u_s[IsoVelo_u_s["gene_name"].isin(genes[0:2])].to_csv('./examples/isovelo/data/137d_run2_IsoVelo_u_s_processed.csv')
 
 print(isovelo_df['alpha'].notna().sum(), "non-NaN alpha values")
 
