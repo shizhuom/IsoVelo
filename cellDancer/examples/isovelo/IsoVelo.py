@@ -9,6 +9,8 @@ from pathlib import Path
 from scipy.io import mmread
 import celldancer as cd
 
+sys.path.append('./src/celldancer/')
+
 import sys
 from src.celldancer.isovelo_estimation import isovelo_velocity
 from src.celldancer.compute_isovelo_velocity import compute_isovelo_velocity
@@ -65,9 +67,15 @@ def _select_meta_for_sample(meta_df, sample_cellids):
     meta_df = meta_df.drop_duplicates(subset='cellID', keep='first')
     return meta_df, best_suffix
 
-def _load_sample(sample_id, s_pickle, u_pickle):
+def _load_sample(sample_id, s_pickle, u_pickle=None):
     s_df = get_splicing_count(s_pickle)
-    u_df = get_splicing_count(u_pickle)
+    if u_pickle is not None and os.path.exists(u_pickle):
+        u_df = get_splicing_count(u_pickle)
+    else:
+        # Fallback: derive gene-level unsplice from spliced isoforms (proxy)
+        split_cols = s_df.columns.to_series().str.split("_", n=1, expand=True)
+        gene_names = split_cols[0].values
+        u_df = s_df.groupby(gene_names, axis=1).sum()
 
     common_names = set(s_df.index) & set(u_df.index)
     common_names = sorted(list(common_names))
@@ -132,6 +140,8 @@ for s_path in s_pickles:
     u_path = os.path.join(data_dir, base + "_u.pickle")
     if os.path.exists(u_path):
         sample_pairs.append((base, s_path, u_path))
+    else:
+        sample_pairs.append((base, s_path, None))
 
 sample_dfs = {}
 for sample_id, s_path, u_path in sample_pairs:
@@ -142,66 +152,88 @@ for sample_id, s_path, u_path in sample_pairs:
 if len(sample_dfs) == 0:
     raise RuntimeError("No valid sample pairs found in ./examples/isovelo/data")
 
-# Build gene/isoform sets per sample
-combo_sets = {
-    sid: set(zip(df['gene_name'], df['isoform_name']))
-    for sid, df in sample_dfs.items()
-}
-all_combos = set().union(*combo_sets.values())
-common_combos = set.intersection(*combo_sets.values())
+# If only one sample exists, write it directly as the intersection file
+if len(sample_dfs) == 1:
+    only_id, only_df = next(iter(sample_dfs.items()))
+    IsoVelo_u_s_intersection = only_df.copy()
+    IsoVelo_u_s_intersection.to_parquet(
+        os.path.join(data_dir, "all_samples_IsoVelo_u_s_intersection.parquet"),
+        engine="pyarrow",
+        index=False,
+    )
+else:
+    # Build gene/isoform sets per sample
+    combo_sets = {
+        sid: set(zip(df["gene_name"], df["isoform_name"]))
+        for sid, df in sample_dfs.items()
+    }
+    all_combos = set().union(*combo_sets.values())
+    common_combos = set.intersection(*combo_sets.values())
 
-def _fill_missing_combos(df, missing_combos):
-    if not missing_combos:
-        return df
-    cells = df[['cellID', 'clusters', 'embedding1', 'embedding2', 'sample_id']].drop_duplicates()
-    missing = pd.DataFrame(list(missing_combos), columns=['gene_name', 'isoform_name'])
-    cells['key'] = 1
-    missing['key'] = 1
-    expanded = cells.merge(missing, on='key', how='inner').drop(columns=['key'])
-    expanded['unsplice'] = 0
-    expanded['splice'] = 0
-    expanded = expanded[[
-        "gene_name", "isoform_name", "unsplice", "splice",
-        "cellID", "clusters", "embedding1", "embedding2", "sample_id"
-    ]]
-    return pd.concat([df, expanded], ignore_index=True)
+    def _fill_missing_combos(df, missing_combos):
+        if not missing_combos:
+            return df
+        cells = df[
+            ["cellID", "clusters", "embedding1", "embedding2", "sample_id"]
+        ].drop_duplicates()
+        missing = pd.DataFrame(list(missing_combos), columns=["gene_name", "isoform_name"])
+        cells["key"] = 1
+        missing["key"] = 1
+        expanded = cells.merge(missing, on="key", how="inner").drop(columns=["key"])
+        expanded["unsplice"] = 0
+        expanded["splice"] = 0
+        expanded = expanded[
+            [
+                "gene_name",
+                "isoform_name",
+                "unsplice",
+                "splice",
+                "cellID",
+                "clusters",
+                "embedding1",
+                "embedding2",
+                "sample_id",
+            ]
+        ]
+        return pd.concat([df, expanded], ignore_index=True)
 
-# Strategy 1: union of combos, fill missing with zeros
-filled_dfs = []
-for sid, df in sample_dfs.items():
-    missing = all_combos - combo_sets[sid]
-    filled_dfs.append(_fill_missing_combos(df, missing))
-IsoVelo_u_s_union = pd.concat(filled_dfs, ignore_index=True)
+    # Strategy 1: union of combos, fill missing with zeros
+    filled_dfs = []
+    for sid, df in sample_dfs.items():
+        missing = all_combos - combo_sets[sid]
+        filled_dfs.append(_fill_missing_combos(df, missing))
+    IsoVelo_u_s_union = pd.concat(filled_dfs, ignore_index=True)
 
-IsoVelo_u_s_union.to_parquet(
-    os.path.join(data_dir, "all_samples_IsoVelo_u_s_union_zeros.parquet"),
-    engine="pyarrow",
-    index=False
-)
+    IsoVelo_u_s_union.to_parquet(
+        os.path.join(data_dir, "all_samples_IsoVelo_u_s_union_zeros.parquet"),
+        engine="pyarrow",
+        index=False,
+    )
 
-# Strategy 2: intersection of combos
-filtered_dfs = []
-for sid, df in sample_dfs.items():
-    mask = list(zip(df['gene_name'], df['isoform_name']))
-    keep = [c in common_combos for c in mask]
-    filtered_dfs.append(df.loc[keep].copy())
-IsoVelo_u_s_intersection = pd.concat(filtered_dfs, ignore_index=True)
+    # Strategy 2: intersection of combos
+    filtered_dfs = []
+    for sid, df in sample_dfs.items():
+        mask = list(zip(df["gene_name"], df["isoform_name"]))
+        keep = [c in common_combos for c in mask]
+        filtered_dfs.append(df.loc[keep].copy())
+    IsoVelo_u_s_intersection = pd.concat(filtered_dfs, ignore_index=True)
 
-IsoVelo_u_s_intersection.to_parquet(
-    os.path.join(data_dir, "all_samples_IsoVelo_u_s_intersection.parquet"),
-    engine="pyarrow",
-    index=False
-)
+    IsoVelo_u_s_intersection.to_parquet(
+        os.path.join(data_dir, "all_samples_IsoVelo_u_s_intersection.parquet"),
+        engine="pyarrow",
+        index=False,
+    )
 
-# Prioritize genes
+# Prioritize genes (optional)
 file_path = "./examples/isovelo/data/Neurons_Progenitors_scotch_pacbio_novel_sep.csv"
-data = pd.read_csv(file_path, sep=",", header=0)
+if os.path.exists(file_path):
+    data = pd.read_csv(file_path, sep=",", header=0)
 
-# Convert columns to numeric (non-numeric values become NaN, similar to as.numeric() behavior)
-data["p_gene_adj"] = pd.to_numeric(data["p_gene_adj"], errors="coerce")
-data["p_DTU_gene_adj"] = pd.to_numeric(data["p_DTU_gene_adj"], errors="coerce")
+    # Convert columns to numeric (non-numeric values become NaN, similar to as.numeric() behavior)
+    data["p_gene_adj"] = pd.to_numeric(data["p_gene_adj"], errors="coerce")
+    data["p_DTU_gene_adj"] = pd.to_numeric(data["p_DTU_gene_adj"], errors="coerce")
 
-data = data.dropna()
+    data = data.dropna()
 
-data = data.sort_values(by=["p_gene_adj", "p_DTU_gene_adj"], ascending=[False, True])
-data.to_parquet('./examples/isovelo/data/isoform_switch_genes.parquet', engine='pyarrow')
+    data = data.sort_values(by=["p_gene_adj", "p_DTU_gene_adj"], ascending=[False, True])
+    data.to_parquet('./examples/isovelo/data/isoform_switch_genes.parquet', engine='pyarrow')
