@@ -77,7 +77,8 @@ def _pivot_matrices(df: pd.DataFrame) -> IsoVeloMatrices:
     # Map isoforms to genes
     isoform_gene = (
         df[["isoform_name", "gene_name"]]
-        .drop_duplicates()
+        .drop_duplicates(subset=["isoform_name", "gene_name"])
+        .drop_duplicates(subset=["isoform_name"], keep="first")
         .set_index("isoform_name")
         .reindex(isoform_names)
     )

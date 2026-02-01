@@ -6,6 +6,7 @@ import os
 import numpy as np
 import pandas as pd
 import torch
+import matplotlib.pyplot as plt
 
 from src.celldancer.iso_vae import IsoVeloDataset, train_isovelo_vae
 from src.celldancer.iso_refine import refine_step
@@ -109,6 +110,9 @@ def main() -> None:
         layer_prefix="isoVelo",
     )
 
+    print("Train history (last epoch):", {k: v[-1] for k, v in history.items()})
+    print("Velocity shapes:", results["v_iso"].shape, results["v_gene"].shape)
+
     # Plot examples
     os.makedirs("./examples/isovelo/figures", exist_ok=True)
 
@@ -120,6 +124,8 @@ def main() -> None:
         density=1.0,
         title="Global IsoVelo (gene-level)",
     )
+    plt.savefig("./examples/isovelo/figures/global_velocity.png", dpi=300)
+    plt.show()
 
     gene_to_plot = gene_list[0] if gene_list else dataset.mats.gene_names[0]
     gene_index = dataset.mats.gene_names.index(gene_to_plot)
@@ -130,6 +136,8 @@ def main() -> None:
         gene_index=gene_index,
         title=f"ISS Hotspots: {gene_to_plot}",
     )
+    plt.savefig(f"./examples/isovelo/figures/{gene_to_plot}_iss_hotspots.png", dpi=300)
+    plt.show()
 
     isoform_indices = dataset.mats.gene_to_isoform_indices[gene_index]
     isoform_names = [dataset.mats.isoform_names[i] for i in isoform_indices]
@@ -139,6 +147,8 @@ def main() -> None:
         isoform_indices=isoform_indices,
         isoform_names=isoform_names,
     )
+    plt.savefig(f"./examples/isovelo/figures/{gene_to_plot}_isoform_proportion.png", dpi=300)
+    plt.show()
 
     # Phase portrait for first isoform of the gene
     if isoform_names:
@@ -148,6 +158,11 @@ def main() -> None:
             isoform_name=isoform_names[0],
             alpha_beta_gamma=refined,
         )
+        plt.savefig(
+            f"./examples/isovelo/figures/{gene_to_plot}_{isoform_names[0]}_portrait.png",
+            dpi=300,
+        )
+        plt.show()
 
 
 if __name__ == "__main__":

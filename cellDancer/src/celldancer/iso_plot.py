@@ -68,7 +68,7 @@ def plot_isoform_portrait(
 
     Uses clusters column for color. Draws steady-state line with slope gamma/beta.
     """
-    required = {"gene_name", "isoform_name", "unspice", "splice", "clusters"}
+    required = {"gene_name", "isoform_name", "unsplice", "splice", "clusters"}
     if not required.issubset(df.columns):
         missing = required.difference(df.columns)
         raise ValueError(f"Missing columns in df: {sorted(missing)}")
@@ -81,7 +81,7 @@ def plot_isoform_portrait(
     sns.scatterplot(
         data=sub,
         x="splice",
-        y="unspice",
+        y="unsplice",
         hue="clusters",
         palette="tab10",
         s=20,
