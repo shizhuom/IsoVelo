@@ -337,19 +337,34 @@ def compute_isovelo_velocity_per_isoform(
     def _is_list_like(value):
         return isinstance(value, (list, tuple, set, np.ndarray, pd.Series))
 
+    # Build global gene-level matrices for projection so isoform projections
+    # use the same cell ordering and global expression context.
+    try:
+        splice_all, dmatrix_all = data_reshape_isovelo(isovelo_df, aggregate_method='sum')
+        gene_order = isovelo_df['gene_name'].drop_duplicates().tolist()
+    except Exception:
+        splice_all = None
+        dmatrix_all = None
+        gene_order = None
+
     def _compute_one(gene_name, isoform_name):
-        # Filter to specific gene-isoform
+        # Filter to specific gene-isoform and sort by cellIndex to match
+        # the ordering used in `data_reshape_isovelo` (which sorts by cellIndex).
         iso_df = isovelo_df[
             (isovelo_df.gene_name == gene_name) &
             (isovelo_df.isoform_name == isoform_name)
         ].copy()
+        iso_df = iso_df.sort_values('cellIndex').reset_index(drop=True)
 
         if len(iso_df) == 0:
             raise ValueError(f"No data found for gene={gene_name}, isoform={isoform_name}")
 
-        # Create expression and velocity matrices (1 x n_cells)
-        splice = iso_df.splice.values.reshape(1, -1)
-        dsplice = (iso_df.splice_predict.values - iso_df.splice.values).reshape(1, -1)
+        # Create isoform-level dsplice (raw) and transformed dMatrix used for
+        # projection. For projection we embed isoform dsplice into the
+        # global gene-level velocity matrix so correlations use full-gene
+        # context and cell ordering is consistent.
+        splice_iso = iso_df.splice.values.reshape(1, -1)
+        dsplice_raw = (iso_df.splice_predict.values - iso_df.splice.values).reshape(1, -1)
 
         # Prepare for downsampling
         data_df = iso_df[['gene_name', 'unsplice', 'splice', 'cellID', 'embedding1', 'embedding2']].copy()
@@ -365,11 +380,15 @@ def compute_isovelo_velocity_per_isoform(
 
         embedding = iso_df[['embedding1', 'embedding2']].to_numpy()
 
-        # Simple velocity projection for single gene/isoform
+        # Simple velocity projection for single gene/isoform. We construct a
+        # velocity matrix with the same gene ordering as `splice_all` where
+        # only the row corresponding to the current gene contains the
+        # isoform-specific transformed dsplice; other rows are zero. This
+        # allows projection to consider correlations between the isoform
+        # velocity and the global expression landscape.
         psc = 1
-        np_dMatrix = np.sqrt(np.abs(dsplice) + psc) * np.sign(dsplice)
+        np_dMatrix_iso = np.sqrt(np.abs(dsplice_raw) + psc) * np.sign(dsplice_raw)
 
-        # Velocity correlation and projection
         def velocity_projection_simple(cell_matrix, velocity_matrix, embedding, knn_embedding):
             sigma_corr = 0.05
             cell_matrix[np.isnan(cell_matrix)] = 0
@@ -405,12 +424,42 @@ def compute_isovelo_velocity_per_isoform(
             velocity_embedding = velocity_embedding.T
             return velocity_embedding
 
-        velocity_embedding = velocity_projection_simple(
-            splice[:, sampling_ixs],
-            np_dMatrix[:, sampling_ixs],
-            embedding[sampling_ixs, :],
-            knn_embedding
-        )
+        # If we have the global splice matrix available, use it so the
+        # correlation is computed against the full gene expression matrix.
+        if splice_all is not None and gene_order is not None:
+            # velocity matrix shaped like splice_all (n_genes x n_cells)
+            velocity_matrix = np.zeros_like(dmatrix_all)
+            try:
+                g_idx = gene_order.index(gene_name)
+            except ValueError:
+                g_idx = None
+
+            if g_idx is not None:
+                # Place isoform-transformed dsplice into the gene-row, but
+                # use the isoform-specific cell matrix for correlation so that
+                # projection remains sensitive to isoform differences.
+                velocity_matrix[g_idx, :] = np_dMatrix_iso.flatten()
+                cell_matrix_for_proj = splice_iso
+                vel_mat_for_proj = np_dMatrix_iso
+            else:
+                # Fallback to isoform-only matrices
+                cell_matrix_for_proj = splice_iso
+                vel_mat_for_proj = np_dMatrix_iso
+
+            velocity_embedding = velocity_projection_simple(
+                cell_matrix_for_proj[:, sampling_ixs],
+                vel_mat_for_proj[:, sampling_ixs],
+                embedding[sampling_ixs, :],
+                knn_embedding
+            )
+        else:
+            # Fallback: compute projection using only this isoform
+            velocity_embedding = velocity_projection_simple(
+                splice_iso[:, sampling_ixs],
+                np_dMatrix_iso[:, sampling_ixs],
+                embedding[sampling_ixs, :],
+                knn_embedding
+            )
 
         # Add velocity to dataframe
         iso_df['velocity1'] = np.nan
@@ -522,4 +571,21 @@ def compute_isovelo_velocity_per_isoform(
                 )
 
     results = [_compute_one(gene_name, isoform_name) for gene_name, isoform_name in pairs]
-    return pd.concat(results, ignore_index=True)
+    results_df = pd.concat(results, ignore_index=True)
+
+    # Persist isoform-level velocity vectors for each cell to CSV
+    try:
+        out_fname = os.path.join(os.getcwd(), 'isovelo_isoform_velocities.csv')
+        # select a concise set of columns if available
+        cols = []
+        for c in ['gene_name', 'isoform_name', 'cellIndex', 'cellID', 'velocity1', 'velocity2', 'embedding1', 'embedding2']:
+            if c in results_df.columns:
+                cols.append(c)
+        if not cols:
+            cols = results_df.columns.tolist()
+        results_df.to_csv(out_fname, columns=cols, index=False)
+    except Exception:
+        # Do not fail the computation if saving fails
+        warnings.warn('Failed to write isoform velocity CSV.', UserWarning)
+
+    return results_df
