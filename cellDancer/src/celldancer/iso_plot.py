@@ -23,6 +23,7 @@ def plot_global_velocity(
     basis: str = "X_isoVAE",
     density: float = 1.0,
     title: Optional[str] = None,
+    embedding: Optional[np.ndarray] = None,
 ):
     """Project gene-level velocities onto the VAE latent embedding.
 
@@ -43,14 +44,30 @@ def plot_global_velocity(
     except Exception:
         pass
 
-    z = np.asarray(latent_z)
+    z = np.asarray(embedding) if embedding is not None else np.asarray(latent_z)
     v = np.asarray(v_gene)
     if z.shape[1] < 2:
         raise ValueError("latent_z must be at least 2D for plotting.")
 
+    v_centered = v - v.mean(axis=0, keepdims=True)
+    if v_centered.shape[1] >= 2:
+        u, s, vt = np.linalg.svd(v_centered, full_matrices=False)
+        v2d = u[:, :2] * s[:2]
+    else:
+        v2d = np.zeros((v_centered.shape[0], 2), dtype=v_centered.dtype)
+        v2d[:, 0] = v_centered[:, 0]
+
     plt.figure(figsize=(6, 5))
     plt.scatter(z[:, 0], z[:, 1], s=8, c="lightgray", alpha=0.6)
-    plt.quiver(z[:, 0], z[:, 1], v[:, 0], v[:, 1], angles="xy", scale_units="xy", scale=1)
+    plt.quiver(
+        z[:, 0],
+        z[:, 1],
+        v2d[:, 0],
+        v2d[:, 1],
+        angles="xy",
+        scale_units="xy",
+        scale=1,
+    )
     if title:
         plt.title(title)
     plt.xlabel("z1")
