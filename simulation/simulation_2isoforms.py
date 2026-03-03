@@ -879,7 +879,7 @@ def _nonzero_median(x: np.ndarray, min_n: int = 5) -> float:
     return float(np.median(x))
 
 
-def fit_isoform_switching_velocyto(
+def fit_isoform_switching_velocyto_robust(
     u_obs: np.ndarray,
     s1_obs: np.ndarray,
     s2_obs: np.ndarray,
@@ -1330,13 +1330,13 @@ ax.set_ylabel("s1")
 ax.set_zlabel("s2")
 plt.show()
 
-alpha_early, beta1_early, beta2_early, gamma1_early, gamma2_early = fit_isoform_switching_velocyto(
+alpha_early, beta1_early, beta2_early, gamma1_early, gamma2_early = fit_isoform_switching_velocyto_robust(
 	u_obs=u_g, 
 	s1_obs=s1_g, 
 	s2_obs=s2_g, 
 	state="early"
 	)
-alpha_late, beta1_late, beta2_late, gamma1_late, gamma2_late = fit_isoform_switching_velocyto(
+alpha_late, beta1_late, beta2_late, gamma1_late, gamma2_late = fit_isoform_switching_velocyto_robust(
 	u_obs=u_g, 
 	s1_obs=s1_g, 
 	s2_obs=s2_g, 
@@ -1457,13 +1457,13 @@ ax.set_ylabel("s1")
 ax.set_zlabel("s2")
 plt.show()
 
-alpha_early, beta1_early, beta2_early, gamma1_early, gamma2_early = fit_isoform_switching_velocyto(
+alpha_early, beta1_early, beta2_early, gamma1_early, gamma2_early = fit_isoform_switching_velocyto_robust(
 	u_obs=u_do, 
 	s1_obs=s1_do, 
 	s2_obs=s2_do, 
 	state="early"
 	)
-alpha_late, beta1_late, beta2_late, gamma1_late, gamma2_late = fit_isoform_switching_velocyto(
+alpha_late, beta1_late, beta2_late, gamma1_late, gamma2_late = fit_isoform_switching_velocyto_robust(
 	u_obs=u_do, 
 	s1_obs=s1_do, 
 	s2_obs=s2_do, 
