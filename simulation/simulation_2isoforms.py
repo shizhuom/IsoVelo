@@ -1221,29 +1221,31 @@ alpha_early, beta1_early, beta2_early, gamma1_early, gamma2_early = fit_isoform_
 	u_obs=u_obs, 
 	s1_obs=s1_obs, 
 	s2_obs=s2_obs, 
-	state="early"
+	state="early",
+    assume_equal_gamma=False,  # just to see what it does in the ideal case
 	)
 alpha_late, beta1_late, beta2_late, gamma1_late, gamma2_late = fit_isoform_switching_velocyto(
 	u_obs=u_obs, 
 	s1_obs=s1_obs, 
 	s2_obs=s2_obs, 
-	state="late"
+	state="late",
+    assume_equal_gamma=False,  # just to see what it does in the ideal case
 	)
 print(
 	"Estimated parameters for Phase 1: "
-	f"alpha={alpha_early:.2f}, beta1={beta1_early:.2f}, beta2={beta2_early:.2f}"
+	f"alpha={alpha_early:.2f}, beta1={beta1_early:.2f}, beta2={beta2_early:.2f}, gamma1={gamma1_early:.2f}, gamma2={gamma2_early:.2f}"
 )
 print(
 	"True parameters for Phase 1: "
-	f"alpha={alpha1_true:.2f}, beta1={beta1_1_true:.2f}, beta2={beta2_1_true:.2f}"
+	f"alpha={alpha1_true:.2f}, beta1={beta1_1_true:.2f}, beta2={beta2_1_true:.2f}, gamma1={gamma1_1_true:.2f}, gamma2={gamma2_1_true:.2f}"
 )
 print(
 	"Estimated parameters for Phase 2: "
-	f"alpha={alpha_late:.2f}, beta1={beta1_late:.2f}, beta2={beta2_late:.2f}"
+	f"alpha={alpha_late:.2f}, beta1={beta1_late:.2f}, beta2={beta2_late:.2f}, gamma1={gamma1_late:.2f}, gamma2={gamma2_late:.2f}"
 )
 print(
 	"True parameters for Phase 2: "
-	f"alpha={alpha2_true:.2f}, beta1={beta1_2_true:.2f}, beta2={beta2_2_true:.2f}"
+	f"alpha={alpha2_true:.2f}, beta1={beta1_2_true:.2f}, beta2={beta2_2_true:.2f}, gamma1={gamma1_2_true:.2f}, gamma2={gamma2_2_true:.2f}"
 )
 
 # Simulation 3: Real case + Noise
@@ -1334,29 +1336,31 @@ alpha_early, beta1_early, beta2_early, gamma1_early, gamma2_early = fit_isoform_
 	u_obs=u_g, 
 	s1_obs=s1_g, 
 	s2_obs=s2_g, 
-	state="early"
+	state="early",
+    assume_equal_gamma=False,  # just to see what it does in the ideal case
 	)
 alpha_late, beta1_late, beta2_late, gamma1_late, gamma2_late = fit_isoform_switching_velocyto_robust(
 	u_obs=u_g, 
 	s1_obs=s1_g, 
 	s2_obs=s2_g, 
-	state="late"
+	state="late",
+    assume_equal_gamma=False,  # just to see what it does in the ideal case
 	)
 print(
 	"Estimated parameters for Phase 1: "
-	f"alpha={alpha_early:.2f}, beta1={beta1_early:.2f}, beta2={beta2_early:.2f}"
+	f"alpha={alpha_early:.2f}, beta1={beta1_early:.2f}, beta2={beta2_early:.2f}, gamma1={gamma1_early:.2f}, gamma2={gamma2_early:.2f}"
 )
 print(
 	"True parameters for Phase 1: "
-	f"alpha={alpha1_true:.2f}, beta1={beta1_1_true:.2f}, beta2={beta2_1_true:.2f}"
+	f"alpha={alpha1_true:.2f}, beta1={beta1_1_true:.2f}, beta2={beta2_1_true:.2f}, gamma1={gamma1_1_true:.2f}, gamma2={gamma2_1_true:.2f}"
 )
 print(
 	"Estimated parameters for Phase 2: "
-	f"alpha={alpha_late:.2f}, beta1={beta1_late:.2f}, beta2={beta2_late:.2f}"
+	f"alpha={alpha_late:.2f}, beta1={beta1_late:.2f}, beta2={beta2_late:.2f}, gamma1={gamma1_late:.2f}, gamma2={gamma2_late:.2f}"
 )
 print(
 	"True parameters for Phase 2: "
-	f"alpha={alpha2_true:.2f}, beta1={beta1_2_true:.2f}, beta2={beta2_2_true:.2f}"
+	f"alpha={alpha2_true:.2f}, beta1={beta1_2_true:.2f}, beta2={beta2_2_true:.2f}, gamma1={gamma1_2_true:.2f}, gamma2={gamma2_2_true:.2f}"
 )
 
 # Simulation 4: Real case + Noise + Random Dropout
@@ -1461,29 +1465,31 @@ alpha_early, beta1_early, beta2_early, gamma1_early, gamma2_early = fit_isoform_
 	u_obs=u_do, 
 	s1_obs=s1_do, 
 	s2_obs=s2_do, 
-	state="early"
+	state="early",
+    assume_equal_gamma=False,  # just to see what it does in the ideal case
 	)
 alpha_late, beta1_late, beta2_late, gamma1_late, gamma2_late = fit_isoform_switching_velocyto_robust(
 	u_obs=u_do, 
 	s1_obs=s1_do, 
 	s2_obs=s2_do, 
-	state="late"
+	state="late",
+    assume_equal_gamma=False,  # just to see what it does in the ideal case
 	)
 print(
 	"Estimated parameters for Phase 1: "
-	f"alpha={alpha_early:.2f}, beta1={beta1_early:.2f}, beta2={beta2_early:.2f}"
+	f"alpha={alpha_early:.2f}, beta1={beta1_early:.2f}, beta2={beta2_early:.2f}, gamma1={gamma1_early:.2f}, gamma2={gamma2_early:.2f}"
 )
 print(
 	"True parameters for Phase 1: "
-	f"alpha={alpha1_true:.2f}, beta1={beta1_1_true:.2f}, beta2={beta2_1_true:.2f}"
+	f"alpha={alpha1_true:.2f}, beta1={beta1_1_true:.2f}, beta2={beta2_1_true:.2f}, gamma1={gamma1_1_true:.2f}, gamma2={gamma2_1_true:.2f}"
 )
 print(
 	"Estimated parameters for Phase 2: "
-	f"alpha={alpha_late:.2f}, beta1={beta1_late:.2f}, beta2={beta2_late:.2f}"
+	f"alpha={alpha_late:.2f}, beta1={beta1_late:.2f}, beta2={beta2_late:.2f}, gamma1={gamma1_late:.2f}, gamma2={gamma2_late:.2f}"
 )
 print(
 	"True parameters for Phase 2: "
-	f"alpha={alpha2_true:.2f}, beta1={beta1_2_true:.2f}, beta2={beta2_2_true:.2f}"
+	f"alpha={alpha2_true:.2f}, beta1={beta1_2_true:.2f}, beta2={beta2_2_true:.2f}, gamma1={gamma1_2_true:.2f}, gamma2={gamma2_2_true:.2f}"
 )
 
 # Simulation 5: Real case (count matrix) + Noise + Random Dropout + Robust velocyto
